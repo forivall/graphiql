@@ -13,6 +13,7 @@ import {
   TokenKind,
   IPosition,
   OutlineTree,
+  IRange,
 } from '../types';
 
 import {
@@ -35,9 +36,10 @@ import {
   InputValueDefinitionNode,
   FieldDefinitionNode,
   EnumValueDefinitionNode,
+  Source as GraphQLSource,
 } from 'graphql';
 
-import { offsetToPosition } from '../utils';
+import { locToRange } from '../utils';
 
 const { INLINE_FRAGMENT } = Kind;
 
@@ -81,15 +83,15 @@ type OutlineTreeConverterType = Partial<{
   [key in OutlineableKinds]: (node: any) => OutlineTreeResult;
 }>;
 
-export function getOutline(documentText: string): Outline | null {
+export function getOutline(document: string | GraphQLSource): Outline | null {
   let ast;
   try {
-    ast = parse(documentText);
+    ast = parse(document);
   } catch {
     return null;
   }
 
-  const visitorFns = outlineTreeConverter(documentText);
+  const visitorFns = outlineTreeConverter(document);
   const outlineTrees = visit(ast, {
     leave(node) {
       if (visitorFns !== undefined && node.kind in visitorFns) {
@@ -103,14 +105,21 @@ export function getOutline(documentText: string): Outline | null {
   return { outlineTrees };
 }
 
-function outlineTreeConverter(docText: string): OutlineTreeConverterType {
+function outlineTreeConverter(
+  document: string | GraphQLSource,
+): OutlineTreeConverterType {
+  const docText = typeof document === 'string' ? document : document.body;
+  const { locationOffset }: Partial<GraphQLSource> =
+    typeof document === 'string' ? {} : document;
   // TODO: couldn't find a type that would work for all cases here,
   // however the inference is not broken by this at least
   const meta = (node: any) => {
+    const range = locToRange(docText, node.loc!);
+    applyOffsetToRange(range, locationOffset);
     return {
       representativeName: node.name,
-      startPosition: offsetToPosition(docText, node.loc.start),
-      endPosition: offsetToPosition(docText, node.loc.end),
+      startPosition: range.start,
+      endPosition: range.end,
       kind: node.kind,
       children:
         node.selectionSet || node.fields || node.values || node.arguments || [],
@@ -222,4 +231,25 @@ function concatMap<V>(arr: Readonly<V[]>, fn: Function): Readonly<V[]> {
     }
   }
   return res;
+}
+
+function applyOffsetToRange(
+  range: IRange,
+  locationOffset?: GraphQLSource['locationOffset'],
+) {
+  if (!locationOffset) {
+    return;
+  }
+  applyOffsetToPosition(range.start, locationOffset);
+  applyOffsetToPosition(range.end, locationOffset);
+}
+
+function applyOffsetToPosition(
+  position: IPosition,
+  locationOffset: GraphQLSource['locationOffset'],
+) {
+  if (position.line === 1) {
+    position.character += locationOffset.column - 1;
+  }
+  position.line += locationOffset.line - 1;
 }
