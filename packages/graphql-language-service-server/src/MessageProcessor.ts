@@ -962,10 +962,16 @@ export class MessageProcessor {
       }),
     );
 
-    return this._languageService.getDocumentSymbols(
-      cachedDocument.contents[0].query,
-      textDocument.uri,
+    const results = await Promise.all(
+      cachedDocument.contents.map(content =>
+        this._languageService.getDocumentSymbols(
+          content.query,
+          textDocument.uri,
+          content.range,
+        ),
+      ),
     );
+    return results.flat();
   }
 
   // async handleReferencesRequest(params: ReferenceParams): Promise<Location[]> {
@@ -1006,11 +1012,16 @@ export class MessageProcessor {
           if (!cachedDocument) {
             return [];
           }
-          const docSymbols = await this._languageService.getDocumentSymbols(
-            cachedDocument.contents[0].query,
-            uri,
+          const docSymbols = await Promise.all(
+            cachedDocument.contents.map(content =>
+              this._languageService.getDocumentSymbols(
+                content.query,
+                uri,
+                content.range,
+              ),
+            ),
           );
-          symbols.push(...docSymbols);
+          symbols.push(...docSymbols.flat());
         }),
       );
       return symbols.filter(symbol => symbol?.name?.includes(params.query));
